@@ -1,6 +1,6 @@
 # FRISC-V
 
-FRISC-V is a 32-bit RISC-V core developed at [FER](https://www.fer.unizg.hr/en), University of Zagreb. It has a 5-stage in-order pipeline and can boot Linux. This repo also contains a reference SoC for the TUL PYNQ-Z2 board.
+FRISC-V is a 32-bit RISC-V core developed at [FER](https://www.fer.unizg.hr/en), University of Zagreb. It has a 5-stage in-order pipeline and can boot Linux. This repo also contains a reference SoC for the TUL PYNQ-Z2 board. Authors are listed in [`Bender.yml`](Bender.yml)
 
 **ISA:** RV32I (or RV32E) + M (multiply/divide) + A (atomics) + Zicsr + Zifencei + Zicntr + Sstc + Sv32
 
