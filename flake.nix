@@ -1,0 +1,159 @@
+# Copyright 2026 FER, HPC Architecture and Application Research Center
+# SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
+#
+# Emil Popovic <mail@emilpopovic.me>
+# Matej Jurasic <matej.jurasic@cappig.dev>
+
+{
+  description = "FRISC-V toolchain";
+
+  nixConfig = {
+    extra-substituters = [ "https://nix-cache.fossi-foundation.org" ];
+    extra-trusted-public-keys = [
+      "nix-cache.fossi-foundation.org:3+K59iFwXqKsL7BNu6Guy0v+uTlwsxYQxjspXzqLYQs="
+    ];
+  };
+
+  inputs = {
+    nix-eda.url = "github:fossi-foundation/nix-eda";
+    nixpkgs.follows = "nix-eda/nixpkgs";
+    nixpkgs-slang.url = "github:NixOS/nixpkgs/nixos-unstable";
+  };
+
+  outputs = { self, nixpkgs, nixpkgs-slang, nix-eda }:
+    let
+      systems = [ "x86_64-linux" ];
+      forAllSystems = nixpkgs.lib.genAttrs systems;
+    in {
+      devShells = forAllSystems (system:
+        let
+          pkgs = import nixpkgs {
+            inherit system;
+            overlays = [ nix-eda.overlays.default ];
+          };
+          sv-lang = nixpkgs-slang.legacyPackages.${system}.sv-lang;
+          riscv-toolchain = pkgs.stdenv.mkDerivation rec {
+            pname = "riscv64-unknown-elf-toolchain";
+            version = "2026.04.26";
+            src = pkgs.fetchurl {
+              url = "https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/${version}/riscv64-elf-ubuntu-24.04-gcc.tar.xz";
+              hash = "sha256-SmajKWU8nPuGm4Jsrm1wxgO+3MHhPUGdPj6SuZ4IFrE=";
+            };
+            nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+            buildInputs = with pkgs; [
+              stdenv.cc.cc.lib
+              zlib
+              zstd
+              expat
+              gmp
+              mpfr
+              libmpc
+              ncurses
+              glib
+              python312
+            ];
+            dontStrip = true;
+            dontConfigure = true;
+            dontBuild = true;
+            installPhase = ''
+              runHook preInstall
+              mkdir -p $out
+              cp -a ./. $out/
+              runHook postInstall
+            '';
+          };
+          sail-riscv = pkgs.stdenv.mkDerivation rec {
+            pname = "sail-riscv";
+            version = "0.11";
+            src = pkgs.fetchurl {
+              url = "https://github.com/riscv/sail-riscv/releases/download/${version}/sail-riscv-Linux-x86_64.tar.gz";
+              hash = "sha256-JFRY4WDN7dQurOh5ViQS6MCMrq962h+9pE2AfaNBc6g=";
+            };
+            nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+            dontConfigure = true;
+            dontBuild = true;
+            installPhase = ''
+              runHook preInstall
+              mkdir -p $out
+              cp -a ./. $out/
+              runHook postInstall
+            '';
+          };
+          mise = pkgs.stdenv.mkDerivation rec {
+            pname = "mise";
+            version = "2026.7.5";
+            src = pkgs.fetchurl {
+              url = "https://github.com/jdx/mise/releases/download/v${version}/mise-v${version}-linux-x64.tar.gz";
+              hash = "sha256-vpLaOvsYDccbPOb8qq8vOTgSycUOmmTJy2cGzyjttIY=";
+            };
+            nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+            buildInputs = [ pkgs.stdenv.cc.cc.lib ];
+            dontConfigure = true;
+            dontBuild = true;
+            installPhase = ''
+              runHook preInstall
+              install -Dm755 bin/mise $out/bin/mise
+              runHook postInstall
+            '';
+          };
+          yosys-full = nix-eda.packages.${system}.yosysFull;
+          llvm = pkgs.llvmPackages_21;
+          os-tools = (with pkgs; [
+            cmake
+            dtc
+            fakeroot
+            cpio
+            gzip
+            flex
+            bison
+            bc
+            perl
+            (python3.withPackages (ps: [ ps.pyserial ]))
+          ]) ++ [
+            llvm.clang-unwrapped
+            llvm.lld
+            llvm.llvm
+          ];
+        in {
+          default = pkgs.mkShell {
+            name = "friscv-soc";
+            packages = (with pkgs; [
+              iverilog
+              verilator
+              bender
+              gtkwave
+              openocd
+              uv
+              haskellPackages.sv2v
+            ]) ++ [
+              sv-lang
+              mise
+              yosys-full
+              riscv-toolchain
+              sail-riscv
+            ] ++ os-tools;
+          };
+
+          os = pkgs.mkShell {
+            name = "friscv-os";
+            packages = (with pkgs; [
+              bender
+              verilator
+            ]) ++ os-tools;
+          };
+
+          act = pkgs.mkShell {
+            name = "friscv-act";
+            packages = (with pkgs; [
+              bender
+              python3
+              verilator
+            ]) ++ [
+              mise
+              riscv-toolchain
+              sail-riscv
+            ];
+          };
+        });
+    };
+}

@@ -1,21 +1,100 @@
-name: Integration Tests
+# Copyright 2026 FER, HPC Architecture and Application Research Center
+# SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
+#
+# Emil Popovic <mail@emilpopovic.me>
+
+name: test
 
 on:
-    push:
-        branches: [main, dev]
-    pull_request:
-        branches: [main]
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-    test:
-        runs-on: ubuntu-24.04
-        steps:
-          - uses: actions/checkout@v4
+  directed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
 
-          - name: Install dependencies
-            run: |
-                sudo apt-get update
-                sudo apt-get install -y verilator binutils-riscv64-unknown-elf
+      - uses: DeterminateSystems/nix-installer-action@v22
 
-          - name: Run integration tests
-            run: make test
+      - uses: DeterminateSystems/magic-nix-cache-action@v14
+        with:
+          use-flakehub: false
+          use-gha-cache: true
+
+      - name: Directed tests
+        run: nix develop .#act --accept-flake-config --command make run-directed
+
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: DeterminateSystems/nix-installer-action@v22
+
+      - uses: DeterminateSystems/magic-nix-cache-action@v14
+        with:
+          use-flakehub: false
+          use-gha-cache: true
+
+      - name: Linux boot
+        run: nix develop .#os --accept-flake-config --command make run-linux
+
+  aos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: DeterminateSystems/nix-installer-action@v22
+
+      - uses: DeterminateSystems/magic-nix-cache-action@v14
+        with:
+          use-flakehub: false
+          use-gha-cache: true
+
+      - name: AOS boot
+        run: nix develop .#os --accept-flake-config --command make run-aos
+
+  act:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        # <sim config>:<ACT config>, see ACT_RUNS in verif/arch-test/Makefile
+        run: [ "full:full", "full-itermul:full", "embedded:embedded", "frisc:frisc" ]
+    name: act (${{ matrix.run }})
+    env:
+      ACT_RUNS: ${{ matrix.run }}
+      MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}/verif/arch-test/riscv-arch-test
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: DeterminateSystems/nix-installer-action@v22
+
+      - uses: DeterminateSystems/magic-nix-cache-action@v14
+        with:
+          use-flakehub: false
+          use-gha-cache: true
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/share/mise
+            ~/.cache/uv
+            ~/.cache/udb
+          key: act-tools-v2-${{ hashFiles('verif/arch-test/Makefile') }}
+
+      - name: Build ACT
+        run: nix develop .#act --accept-flake-config --command make build-act
+
+      - name: Run ACT
+        run: nix develop .#act --accept-flake-config --command make run-act

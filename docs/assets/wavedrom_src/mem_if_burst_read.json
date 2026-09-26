@@ -1,9 +1,0 @@
-{ "signal": [
-  { "name": "clk",        "wave": "P........." },
-  { "name": "rw",         "wave": "==.......=", "data": ["IDLE", "READ", "IDLE"] },
-  { "name": "burst_en",   "wave": "01.......0" },
-  { "name": "addr",       "wave": "x=.......x", "data": ["A0"] },
-  { "name": "wait_req",   "wave": "01......0." },
-  { "name": "beat_valid", "wave": "0...101..0" },
-  { "name": "rdata",      "wave": "xxxx=x===x", "data": ["D0", "D1", "D2", "D3"] }
-]}

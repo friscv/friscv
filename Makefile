@@ -1,57 +1,106 @@
-VERILATOR := verilator
-VERILATOR_FLAGS := -j 0 --binary --timing --sv -Irtl -Irtl/core -Irtl/soc
-VERILATOR_OUT := build/verilator/tb_integration
-ACT_REPO := https://github.com/riscv/riscv-arch-test.git
-ACT_REF := 5f69fff1851122eabe87233c08d6c4096dd0c5ac
-ACT_ROOT := verif/arch-test/riscv-arch-test
-ACT_CONFIG_SRC := verif/arch-test/friscv-full
-ACT_CONFIG_DST := $(ACT_ROOT)/config/cores/friscv/friscv-full
-ACT_CONFIG := config/cores/friscv/friscv-full/test_config.yaml
-ACT_WORK := $(ACT_ROOT)/work/friscv-full
-ACT_EXCLUDE_EXTENSIONS ?= Sm,S,InterruptsSm,InterruptsS,InterruptsU,ExceptionsZalrsc,ExceptionsZaamo,PMPF,PMPS,PMPSm,PMPU,PMPZaamo,PMPZalrsc,PMPZca,PMPZicbo,Svade,Svadu,SvaduPMP,SvPMP,SvZicbo,SvPMPZicbo
-JOBS ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
-UV_LINK_MODE ?= copy
+# Make flist
+sources.f: Bender.yml Bender.lock
+	rm sources.f || true
+	bender script flist-plus -t rtl -t synthesis > $@
 
-.PHONY: verilate
-verilate:
-	mkdir -p $(VERILATOR_OUT)
-	$(VERILATOR) $(VERILATOR_FLAGS) --top-module tb_integration rtl/core/friscv_pkg.sv rtl/soc/friscv_soc_pkg.sv $(filter-out rtl/core/friscv_pkg.sv rtl/soc/friscv_soc_pkg.sv,$(wildcard rtl/core/*.sv rtl/soc/*.sv rtl/*.sv)) rtl/soc/friscv_clint.v sim/tb_integration.sv -Mdir $(VERILATOR_OUT)
+#################
+# Build targets #
+#################
 
-.PHONY: test-bin
-test-bin:
-	$(MAKE) -C test
+.PHONY: build-act
+build-act:
+	$(MAKE) -C verif/arch-test act-build
 
-.PHONY: verilator-test
-verilator-test:
-	python3 scripts/test.py
+.PHONY: build-directed
+build-directed:
+	$(MAKE) -C verif/directed
 
-.PHONY: test
-test: verilate test-bin verilator-test
+.PHONY: build-sim
+build-sim:
+	$(MAKE) -C target/sim core
 
-.PHONY: act-clone
-act-clone:
-	@if [ ! -d $(ACT_ROOT)/.git ]; then \
-		git clone $(ACT_REPO) $(ACT_ROOT); \
-		cd $(ACT_ROOT) && git checkout $(ACT_REF); \
+.PHONY: build-linux
+build-linux:
+	$(MAKE) -C verif/linux firmware
+
+.PHONY: build-aos
+build-aos:
+	$(MAKE) -C verif/aos build
+
+#############
+# Run tests #
+#############
+
+.PHONY: run-act
+run-act:
+	$(MAKE) -C verif/arch-test act-run
+
+.PHONY: run-directed
+run-directed:
+	$(MAKE) -C verif/directed run
+
+# Run ELF or bin on the core sim connected to a terminal
+.PHONY: console
+console:
+	$(MAKE) -C target/sim console IMG=$(abspath $(IMG))
+
+# OS boots on the core sim
+.PHONY: run-linux
+run-linux:
+	$(MAKE) -C verif/linux run
+
+.PHONY: run-aos
+run-aos:
+	$(MAKE) -C verif/aos run
+
+.PHONY: run-all
+run-all:
+	@status=0;                          \
+	$(MAKE) run-act      || status=1;   \
+	$(MAKE) run-directed || status=1;   \
+	exit $$status
+
+################
+# Lint targets #
+################
+
+SLANG_SUPPRESS := .bender/...,rtl/vendored/...
+
+SLANG_LINT_FLAGS := --top friscv --timescale 1ns/1ps      \
+                    -Wno-duplicate-definition             \
+					-Wno-case-redundant-default           \
+                    --suppress-warnings $(SLANG_SUPPRESS) \
+                    -Weverything -Werror
+
+VERILATOR_LINT_FLAGS := --lint-only --top-module friscv +define+ASSERTS_OFF
+
+YOSYS_LINT_LOG := yosys_lint.log
+
+.PHONY: lint
+lint: lint-slang lint-verilator lint-yosys lint-xilinx
+
+.PHONY: lint-slang
+lint-slang: sources.f
+	slang -f sources.f $(SLANG_LINT_FLAGS)
+
+YOSYS_LINT_ALLOW := 
+
+.PHONY: lint-yosys
+lint-yosys: sources.f
+	@yosys -p "read_slang -F sources.f --top friscv -Wno-unknown-warning-option; \
+	           hierarchy -check -top friscv" > $(YOSYS_LINT_LOG) 2>&1            \
+	    || { tail -20 $(YOSYS_LINT_LOG); exit 1; }
+	@if grep 'warning:' $(YOSYS_LINT_LOG) | grep '^rtl/' | grep -vE '$(YOSYS_LINT_ALLOW)' > /dev/null; then \
+	    echo 'synthesis warnings in rtl/:';                                                                 \
+	    grep 'warning:' $(YOSYS_LINT_LOG) | grep '^rtl/' | grep -vE '$(YOSYS_LINT_ALLOW)';                  \
+	    exit 1;                                                                                             \
 	fi
+	@echo 'lint-yosys: no synthesis warnings in rtl/'
 
-.PHONY: act-config
-act-config: act-clone
-	mkdir -p $(ACT_CONFIG_DST)
-	cp $(ACT_CONFIG_SRC)/* $(ACT_CONFIG_DST)/
+.PHONY: lint-verilator
+lint-verilator: sources.f
+	verilator $(VERILATOR_LINT_FLAGS) verilator_lint.vlt -f sources.f
 
-.PHONY: act-build
-act-build: act-config
-	rm -rf $(ACT_WORK)/build $(ACT_WORK)/elfs
-	UV_LINK_MODE=$(UV_LINK_MODE) CONFIG_FILES=$(ACT_CONFIG) EXCLUDE_EXTENSIONS=$(ACT_EXCLUDE_EXTENSIONS) $(MAKE) -C $(ACT_ROOT) --jobs $(JOBS)
-
-.PYTHON: regress
-regress: verilate
-	python3 scripts/regress.py
-
-.PHONY: act
-act: verilate act-build regress
-
-.PHONY: clean
-clean:
-	rm -rf build/
+.PHONY: lint-xilinx
+lint-xilinx:
+	$(MAKE) -C target/xilinx/pynq-z2 lint

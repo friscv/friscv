@@ -1,0 +1,2 @@
+bd/*.tcl linguist-generated=true
+src/friscv_zsbl_rom.sv linguist-generated=true

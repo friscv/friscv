@@ -1,0 +1,63 @@
+# Copyright 2026 FER, HPC Architecture and Application Research Center
+# SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
+#
+# Licensed under the Solderpad Hardware License v 2.1 (the "License");
+# you may not use this file except in compliance with the License, or,
+# at your option, the Apache License version 2.0.
+# You may obtain a copy of the License at https://solderpad.org/licenses/SHL-2.1/
+
+package:
+  name: friscv
+  description: "A 5-stage in-order Linux-capable 32-bit RISC-V CPU core"
+  authors:
+    - "Mario Kovac"
+    - "Matej Grzunov"
+    - "Duje Strunje"
+    - "Petra Kelkovic"
+    - "Luka Kokic"
+    - "Franko Ciric"
+    - "Karlo Milicic Juhas"
+    - "Leonel Maguitman"
+    - "Emil Popovic <mail@emilpopovic.me>"
+    - "Borna Janezic"
+    - "Matej Jurasic <matej.jurasic@cappig.dev>"
+
+dependencies:
+  friscv-mem-utils: { git: "https://github.com/friscv/friscv-mem-utils.git", version: 4.2.0 }
+
+sources:
+  # Core RTL files
+  # Keep in compile order
+  - rtl/friscv_pkg.sv
+  - rtl/friscv_if_stage.sv
+  - rtl/friscv_decoder.sv
+  - rtl/friscv_trap_controller.sv
+  - rtl/friscv_regfile.sv
+  - rtl/friscv_csr_file.sv
+  - rtl/friscv_id_stage.sv
+  - rtl/friscv_muldiv.sv
+  - rtl/friscv_branch_unit.sv
+  - rtl/friscv_ex_stage.sv
+  - rtl/friscv_mem_stage.sv
+  - rtl/friscv_wb_stage.sv
+  - rtl/friscv_control_unit.sv
+  - rtl/friscv_datapath.sv
+  - rtl/friscv_amo_unit.sv
+  - rtl/friscv_arbiter.sv
+  - rtl/friscv_pmp_check.sv
+  - rtl/friscv_pmp_filter.sv
+  - rtl/friscv_ptw.sv
+  - rtl/friscv_tlb.sv
+  - rtl/friscv_mmu.sv
+  - rtl/friscv.sv
+
+  # PYNQ-Z2 reference design (target/xilinx/pynq-z2)
+  - target: xilinx
+    files:
+      - target/xilinx/pynq-z2/src/friscv_zsbl_rom.sv
+      - target/xilinx/pynq-z2/src/friscv_zsbl.sv
+      - target/xilinx/pynq-z2/src/friscv_remap.sv
+      - target/xilinx/pynq-z2/src/friscv_axi.sv
+      - target/xilinx/pynq-z2/src/friscv_axi_wrap.v
+      - target/xilinx/pynq-z2/src/friscv_clint.v
+      - target/xilinx/pynq-z2/src/debounce.v

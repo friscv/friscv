@@ -1,0 +1,16 @@
+{
+  "flags": "--top friscv --timescale 1ns/1ps -Wno-duplicate-definition -Wno-case-redundant-default --suppress-warnings .bender/...,rtl/vendored/... -Weverything",
+  "build": "sources.f",
+  "index": [
+    {
+      "dirs": [
+        "rtl",
+        "target/sim/rtl",
+        "target/xilinx/pynq-z2-soc/src",
+        "verif",
+        ".bender/git/checkouts"
+      ],
+      "excludeDirs": ["build", "obj_dir", "riscv-arch-test"]
+    }
+  ]
+}

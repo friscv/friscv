@@ -1,163 +1,82 @@
 # FRISC-V
 
-FRISC-V is a 32-bit RISC-V core developed at [FER](https://www.fer.unizg.hr/en), University of Zagreb. This repo also contains a reference SoC targeting the TUL PYNQ-Z2.
+FRISC-V is a 32-bit RISC-V core developed at [FER](https://www.fer.unizg.hr/en), University of Zagreb. It has a 5-stage in-order pipeline and can boot Linux. This repo also contains a reference SoC for the TUL PYNQ-Z2 board.
 
-**ISA:** RV32I + M (multiply/divide) + A (atomics) + Zicsr + Zifencei + Zicntr + Sstc + Sv32
-
-## Memory Map
-
-The CPU sees standard RISC-V addresses; the SoC remaps CLINT and UART to free regions of the Zynq AXI address space.
-
-| Region | Software address | AXI address | Size | Notes |
-| ------ | ---------------- | ----------- | ---- | ----- |
-| ZSBL ROM | `0x0000_1000` | — | 1 KB | On-chip boot ROM ([`software/zsbl.S`](software/zsbl.S)) |
-| GPIO 0 (LEDs + switches) | `0x4000_0000` | `0x4000_0000` | 64 KB | Ch 1: 4-bit LED output / Ch 2: 2-bit switch input (`SW0`, `SW1`) |
-| GPIO 1 (buttons) | `0x4001_0000` | `0x4001_0000` | 64 KB | 3-bit input (`BTN0`-`BTN2`); `BTN3` - external reset |
-| GPIO 2 | `0x4002_0000` | `0x4002_0000` | 64 KB | Pins on the RPI header, RGB on base board |
-| CLINT | `0x0200_0000` | `0x4010_0000` | 64 KB | Machine timer + software interrupt, `mtime` |
-| UART 16550 | `0x1000_0000` | `0x4060_0000` | 64 KB | See [docs/UART.md](docs/UART.md) |
-| DRAM | `0x8000_0000` | `0x0010_0000` | 511 MB | DDR3 via Zynq PS HP Slave |
-| End address | `0x5000_0000` | — | — | Write here to halt the core until reset |
-
-> [!NOTE]
-> The address remapping is configured in [`rtl/soc/friscv_soc_pkg.sv`](rtl/soc/friscv_soc_pkg.sv). GPIO register offsets follow the Xilinx AXI GPIO IP convention (`0x0` = channel 1 data, `0x8` = channel 2 data).
-
-## Prerequisites
-
-| Tool | Purpose | Notes |
-| ---- | ------- | ----- |
-| [Vivado 2025.2](https://www.xilinx.com/support/download.html) | Synthesis and programming | Add `bin/` to `PATH` |
-| Python 3.11+ | `build.py` and helper scripts | Standard library only (`tomllib`) |
-| `riscv64-unknown-elf` toolchain | Building test programs | [riscv-gnu-toolchain](https://github.com/riscv-collab/riscv-gnu-toolchain) |
-| [Verilator](https://verilator.org) | RTL simulation and testing | `make test` runs all integration tests |
-| `make` | Building test programs | Linux/macOS native; Windows: WSL2 |
+**ISA:** RV32I (or RV32E) + M (multiply/divide) + A (atomics) + Zicsr + Zifencei + Zicntr + Sstc + Sv32
 
 > [!IMPORTANT]
-> On Windows, Vivado's `bin/` must be on `PATH`. Test programs in `test/` must be assembled inside WSL2 or another environment that has the RISC-V toolchain.
-> The [Linux firmware build](docs/LINUX.md) and [architecture compliance tests](docs/TESTING.md#architecture-compliance-tests) have additional dependencies listed in their respective docs.
+> **Read all of the [documentation](#documentation) before changing anything.** Especially:
+>
+> - [CONTRIBUTING.md](CONTRIBUTING.md): how to use git here. All work goes into the `dev` branch, never directly into `main`.
+> - [docs/TESTING.md](docs/TESTING.md): all tests must pass before you commit, and every new feature needs its own tests.
+> - How not to destroy the Vivado project: never create files from inside Vivado, export the block design after every change, and recreate the project after switching branches. See [CONTRIBUTING.md](CONTRIBUTING.md#adding-new-rtl-files).
+
+## Layout
+
+| Path | Contents |
+| ---- | -------- |
+| `rtl/` | Core RTL. The top module is `friscv` (`rtl/friscv.sv`) |
+| `target/sim/` | Verilator simulation of the core, with C++ models of memory, UART and CLINT |
+| `target/xilinx/pynq-z2/` | Reference SoC for the PYNQ-Z2, see its [README](target/xilinx/pynq-z2/README.md) |
+| `verif/` | Tests: directed tests, architecture tests, Linux and apheleiaOS boot |
+| `examples/` | Small example programs (blink an LED, timer, interrupts) |
+
+The core talks to memory through one request/response port (`mem_req_o`, `mem_rsp_i`). The types and bus adapters (for example to AXI4) come from [friscv-mem-utils](https://github.com/EmilPopovic/friscv-mem-utils), which [bender](https://github.com/pulp-platform/bender) fetches automatically.
+
+## Setup
+
+All tools are provided by a Nix shell. On Linux or WSL2, run once:
+
+```bash
+./setup.sh
+```
+
+This installs Nix and [nix-direnv](https://github.com/nix-community/nix-direnv). After `direnv allow`, tools are loaded every time you `cd` into the repo. Without direnv, run `nix develop` instead.
+
+Vivado is not part of the Nix shell. You only need it for the FPGA, see the [PYNQ-Z2 README](target/xilinx/pynq-z2/README.md).
 
 ## Quick Start
 
-```bash
-git clone https://github.com/friscv/FRISCV-system-HW.git
-cd friscv-system-hw
+Build a program and run it on the simulated core, with your terminal connected to the UART:
 
-python3 build.py  # create Vivado project
+```bash
+make -C verif/directed prog TEST=../../examples/blink_led
+make console IMG=verif/directed/prog/prog.elf
 ```
 
-See [docs/QUICKSTART.md](docs/QUICKSTART.md) for a full walkthrough from clone to running a program on hardware.
+Programs must be linked at `0x8000_0000`, the start of DRAM. `IMG` can be an ELF or a raw binary. Press `Ctrl-A x` to quit.
+
+## Make Targets
+
+Run from the repo root:
+
+| Target | Description |
+| ------ | ----------- |
+| `make build-sim` | Build the Verilator model of the core |
+| `make run-directed` | Run the directed tests |
+| `make run-act` | Run the compliance tests (build them first with `make build-act`) |
+| `make run-all` | Run all of the above |
+| `make run-linux` | Build Linux and boot it on the simulated core |
+| `make run-aos` | Build apheleiaOS and boot it on the simulated core |
+| `make console IMG=FILE` | Run `FILE` with the terminal connected to the UART |
+| `make -C verif/linux console` | Boot Linux with the terminal connected to the UART, so you can use its shell |
+| `make -C verif/aos console` | Boot apheleiaOS with the terminal connected to the UART, so you can log in |
+| `make lint` | Run all linters (slang, Verilator, Yosys, and the Xilinx target) |
 
 ## Documentation
 
 | Document | Description |
 | -------- | ----------- |
-| [docs/QUICKSTART.md](docs/QUICKSTART.md) | Step-by-step setup: clone → bitstream → program → run |
-| [docs/TESTING.md](docs/TESTING.md) | Verilator integration tests, architecture compliance |
-| [docs/LINUX.md](docs/LINUX.md) | Building and running the Linux firmware |
-| [docs/GIT.md](docs/GIT.md) | Repository workflow: project setup, file conventions, pre-commit checklist |
-| [docs/BOOT.md](docs/BOOT.md) | Boot modes, ZSBL boot process, switch encoding, QSPI flash |
-| [docs/UART.md](docs/UART.md) | UART pinout, register map, host connection, C examples |
-
-## Build Script
-
-`build.py` is the cross-platform build entry point (Windows, Linux).
-
-```bash
-python3 build.py <target> [--bin FILE]
-```
-
-| Target | Description |
-| ------ | ----------- |
-| `project` | Create the Vivado project *(default)* |
-| `export-bd` | Export block designs to TCL |
-| `bitstream` | Clean, rebuild bitstream, deploy `.bit`/`.hwh` to `overlay/` |
-| `program` | Program FPGA via JTAG |
-| `status` | Check FPGA status via XSDB |
-| `load` | Load `test/prog.bin` (or `--bin FILE`) into DDR via XSDB |
-| `run` | Release FRISC-V from reset |
-| `go [-t]` | `program` + `load` + `run` in one step (`-t` opens serial terminal) |
-| `flash` | Write `BOOT.bin` to QSPI flash (board self-programs on power-on) |
-| `open` | Open project in Vivado GUI |
-| `clean` | Remove Vivado project and generated files |
-| `zsbl-rom [TEST]` | Regenerate boot ROM from `software/zsbl.S`, or from `test/TEST.S` |
-| `config [PRESET]` | Regenerate configurable parameters in `friscv_pkg.sv` (`minimal` / `full` / TOML) |
-| `help` | Show usage |
-
-> [!NOTE]
-> `bitstream` deletes all cached synthesis and implementation runs before building to ensure a clean result. All CPU cores will be used during synthesis by default - ensure sufficient RAM.
-
-## Building Test Programs
-
-Test programs are RISC-V assembly files in `test/`. They require the `riscv64-unknown-elf` toolchain and `make`:
-
-```bash
-cd test
-make                              # build all integration_test_*.S -> .bin files
-make prog TEST=integration_test_I # build a single test into prog.bin
-```
-
-`test/prog.bin` is what `build.py load` and `xmodem_load.py` use. To run all tests automatically with Verilator, see [docs/TESTING.md](docs/TESTING.md).
-
-## Running Programs
-
-### Via JTAG (XSDB)
-
-The PYNQ-Z2 exposes a USB JTAG interface. With the board powered on and connected:
-
-```bash
-python3 build.py program   # load bitstream
-python3 build.py load      # write test/prog.bin to DDR
-python3 build.py run       # release FRISC-V from reset
-# or in one step:
-python3 build.py go
-```
-
-### Via UART (XMODEM boot)
-
-Set switch `SW0` = 1, `SW1` = 0 before powering on, then transfer the binary over the serial port:
-
-```bash
-pip install pyserial
-python3 scripts/xmodem_load.py --port /dev/ttyUSB0 --baud 115200
-# Windows: --port COM3 (check Device Manager)
-```
-
-The bootloader prints `[ZSBL] Mode: UART` over the same serial port when ready to receive.
-
-## Boot Modes
-
-The ZSBL (Zero-Stage Boot Loader, embedded in the bitstream ROM) reads the slide switches at reset to select a boot mode:
-
-| Switches (SW1:SW0) | Mode | Action |
-| ------------------ | ---- | ------ |
-| `00` | DRAM | Jump directly to DDR base (`0x8000_0000`) |
-| `01` | UART | Receive binary over UART via XMODEM-CRC, then execute |
-| `10` | - | - |
-| `11` | Wait | Wait for BTN0 press, then jump to DDR |
-
-The ZSBL source is in `software/zsbl.S`. After modifying it, regenerate the ROM and rebuild the bitstream:
-
-```bash
-python3 build.py zsbl-rom
-python3 build.py bitstream
-```
-
-## Bitstream Artifacts
-
-Pre-built artifacts are committed under `overlay/`:
-
-| File | Description |
-| ---- | ----------- |
-| `overlay/friscv.bit` | FPGA bitstream |
-| `overlay/friscv.hwh` | Hardware handoff (PYNQ overlay system) |
-| `overlay/ps7_init.tcl` | Zynq PS7 initialisation (extracted from XSA) |
-| `overlay/BOOT.bin` | QSPI boot image (FSBL + bitstream) |
-| `overlay/fsbl.elf` | First Stage Boot Loader ELF |
-
-These are regenerated by `python3 build.py bitstream` and must not be edited manually.
+| [docs/TESTING.md](docs/TESTING.md) | Directed and architecture tests, simulation configurations |
+| [docs/LINUX.md](docs/LINUX.md) | Building and booting Linux and apheleiaOS |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Git workflow, adding files, checklist before committing |
+| [target/xilinx/pynq-z2/README.md](target/xilinx/pynq-z2/README.md) | Building the FPGA design, loading and running programs |
+| [target/xilinx/pynq-z2/docs/QUICKSTART.md](target/xilinx/pynq-z2/docs/QUICKSTART.md) | Step by step: clone, bitstream, program, run on the board |
+| [target/xilinx/pynq-z2/docs/BOOT.md](target/xilinx/pynq-z2/docs/BOOT.md) | Boot modes, ZSBL, QSPI flash |
+| [target/xilinx/pynq-z2/docs/UART.md](target/xilinx/pynq-z2/docs/UART.md) | UART pinout, registers, host connection, C examples |
 
 ## License
 
 Copyright 2026 FER, HPC Architecture and Application Research Center.
 
-Unless otherwise noted, everything in this repository is licensed under the Solderpad Hardware License v2.1 (`Apache-2.0 WITH SHL-2.1`), see [LICENSE](LICENSE). As permitted by the license, you may at your option treat any of this work as licensed under the [Apache License 2.0](http://www.apache.org/licenses/LICENSE-2.0) instead.
+Unless otherwise noted, everything in this repository is licensed under the Solderpad Hardware License v2.1 (`Apache-2.0 WITH SHL-2.1`), see [LICENSE.md](LICENSE.md). As permitted by the license, you may at your option treat any of this work as licensed under the [Apache License 2.0](http://www.apache.org/licenses/LICENSE-2.0) instead.

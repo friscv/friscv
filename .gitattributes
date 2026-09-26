@@ -1,5 +1,0 @@
-*.bit binary
-*.hwh linguist-generated=true
-bd/**/*.tcl linguist-generated=true
-overlay/ps7_init.tcl linguist-generated=true
-*.xdc linguist-vendored

@@ -1,0 +1,11 @@
+#ifndef _RVTEST_CONFIG_H
+#define _RVTEST_CONFIG_H
+
+#define RVMODEL_PMP_GRAIN 0
+#define RVMODEL_NUM_PMPS 0
+
+#define TIME_CSR_IMPLEMENTED 1
+#define COUNTINHIBIT_EN_0
+#define COUNTINHIBIT_EN_2
+
+#endif
