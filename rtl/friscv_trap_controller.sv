@@ -50,7 +50,6 @@ module friscv_trap_controller
     input  logic      meip_i,
 
     // Stage control signals
-    input  logic      flush_i,
     input  logic      stall_i,
 
     // Buffered instruction and fetch state from the ID input capture
@@ -167,9 +166,11 @@ typedef enum logic [1:0] {
 
 step_e step;
 
-// An instruction leaves ID this cycle
+// An instruction leaves ID this cycle. JAL, JALR, MRET and SRET flush ID with their own redirect
+// as they leave, only a taken branch from EX which kills the instruction in ID, keeps it from
+// counting as a step.
 logic id_dispatch;
-assign id_dispatch = instr_valid_i && !stall_i && !flush_i && !trap_o && !trap_pending_o;
+assign id_dispatch = instr_valid_i && !stall_i && !branch_ok_i && !trap_o && !trap_pending_o;
 
 ////////////////////
 // Trap Detection //
@@ -338,10 +339,12 @@ assign trap_src =
 logic exception_active;
 assign exception_active = is_if_trap || is_id_trap || is_ex_trap || is_mem_trap;
 
+logic step_safe;
+assign step_safe = !mret_inhibit && !branch_ok_i && instr_valid_i;
+
 logic debug_halt_entry;
 assign debug_halt_entry = !debug_mode_active &&
-                          interrupt_safe &&
-                          (dbg_req_i || (step == StepFire));
+                          ((dbg_req_i && interrupt_safe) || (step == StepFire && step_safe));
 
 logic debug_entry;
 assign debug_entry = ebreak_to_debug || (debug_halt_entry && !exception_active);

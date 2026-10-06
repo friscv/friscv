@@ -341,7 +341,6 @@ friscv_trap_controller #(
     .msip_i,
     .mtip_i,
     .meip_i,
-    .flush_i,
     .stall_i,
     .ir_i                ( ir_q               ),
     .pc_i                ( pc_in_q            ),

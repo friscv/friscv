@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-10-07
+
+### Fixed
+
+- A debug single step at `jal`, `jalr`, `mret` or `sret` also ran the instruction it redirects to.
+- A debug single step onto `mret`, `sret` or `wfi` ran that instruction too, because the halt waited for it like an interrupt does.
+
 ## [3.0.0] - 2026-09-26
 
 ### Added

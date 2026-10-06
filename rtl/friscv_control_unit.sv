@@ -138,9 +138,8 @@ logic id_stall;
 assign id_stall = mem_stall || hazard_stall || trap_pending_stall || wfi_stall ||
                   ex_muldiv_active_i || halt_i;
 
-// Suppress mret redirect until the hazard clears so IF sees the committed mepc
 logic effective_ret, effective_jal;
-assign effective_ret = ret_i && !ret_csr_hazard && !ret_pipe_hazard && !id_stall;
+assign effective_ret = ret_i && !ret_csr_hazard && !ret_pipe_hazard && !id_stall && !trap_i;
 assign effective_jal = jal_ok_i && !id_stall;
 
 assign stall_if_o  = id_stall;
